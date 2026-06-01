@@ -1,3 +1,4 @@
+## 前端卡片统一迁移到项目：https://github.com/xiaoshi930/xiaoshi
 ## 安装步骤
 ### 数据持久化存储在state_grid_info_xxxxxxxx.json文件
 
