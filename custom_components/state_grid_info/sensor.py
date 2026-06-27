@@ -5,7 +5,7 @@ import asyncio
 from datetime import datetime, timedelta
 import paho.mqtt.client as mqtt
 
-from homeassistant.components.sensor import SensorEntity
+from homeassistant.components.sensor import SensorEntity, SensorDeviceClass, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -43,14 +43,16 @@ async def async_setup_entry(
     await coordinator.async_load_storage()
     await coordinator.async_config_entry_first_refresh()
     
-    # 创建传感器实体，确保实体ID包含用户的电力户号
-    sensor = StateGridInfoSensor(coordinator, config)
+    # 创建传感器实体
+    balance_sensor = StateGridInfoSensor(coordinator, config)
+    energy_sensor = StateGridCumulativeEnergySensor(coordinator, config)
+    entities = [balance_sensor, energy_sensor]
     
     # 存储实体以便在卸载时访问
     if DOMAIN in hass.data and entry.entry_id in hass.data[DOMAIN]:
-        hass.data[DOMAIN][entry.entry_id]["entities"] = [sensor]
+        hass.data[DOMAIN][entry.entry_id]["entities"] = entities
     
-    async_add_entities([sensor], True)
+    async_add_entities(entities, True)
 
 
 class StateGridInfoDataCoordinator(DataUpdateCoordinator):
@@ -1360,6 +1362,65 @@ class StateGridInfoDataCoordinator(DataUpdateCoordinator):
             return []
 
 
+class StateGridCumulativeEnergySensor(SensorEntity):
+    """Cumulative energy consumption sensor for HA Energy dashboard.
+    
+    Provides a total_increasing energy meter reading suitable for
+    HA's Energy dashboard grid consumption input.
+    """
+
+    _attr_device_class = SensorDeviceClass.ENERGY
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+    _attr_native_unit_of_measurement = "kWh"
+    _attr_icon = "mdi:transmission-tower"
+
+    def __init__(self, coordinator, config):
+        """Initialize the cumulative energy sensor."""
+        self.coordinator = coordinator
+        self.config = config
+        consumer_number = config.get(CONF_CONSUMER_NUMBER, "")
+        consumer_name = config.get(CONF_CONSUMER_NAME, "")
+        self._attr_unique_id = f"state_grid_{consumer_number}_energy"
+        self._attr_name = f"国家电网 {consumer_number} 累计用电"
+        self._consumer_number = consumer_number
+        self._consumer_name = consumer_name
+
+    @property
+    def device_info(self):
+        """Return device info (same device as balance sensor)."""
+        consumer_name = ""
+        if self.coordinator.data and "consumer_name" in self.coordinator.data:
+            consumer_name = self.coordinator.data.get("consumer_name", "")
+        elif self._consumer_name:
+            consumer_name = self._consumer_name
+
+        return {
+            "identifiers": {(DOMAIN, f"state_grid_{self._consumer_number}")},
+            "name": f"国家电网 {self._consumer_number}",
+            "manufacturer": "国家电网",
+            "model": f"户名:{consumer_name}"
+        }
+
+    @property
+    def available(self):
+        """Return if entity is available."""
+        if not self.coordinator.data:
+            return False
+        time_diff = datetime.now() - self.coordinator.last_update_time
+        if time_diff.total_seconds() > 3600:
+            return False
+        return True
+
+    @property
+    def native_value(self):
+        """Return cumulative energy consumption (kWh)."""
+        if self.coordinator.data:
+            day_list = self.coordinator.data.get("dayList", [])
+            if day_list:
+                return round(sum(d.get("dayEleNum", 0) for d in day_list), 2)
+        return 0
+
+
 class StateGridInfoSensor(SensorEntity):
     """Representation of a State Grid Info sensor."""
 
@@ -1374,6 +1435,8 @@ class StateGridInfoSensor(SensorEntity):
 
         self._attr_name = f"国家电网 {consumer_number}"
         self._attr_native_unit_of_measurement = "元"
+        self._attr_device_class = SensorDeviceClass.MONETARY
+        self._attr_state_class = SensorStateClass.TOTAL
         self._consumer_number = consumer_number
 
     @property
