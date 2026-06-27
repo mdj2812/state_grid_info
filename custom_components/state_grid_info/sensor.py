@@ -1652,18 +1652,9 @@ class StateGridInfoSensor(SensorEntity):
                 year_ladder_start_date = f"{ladder_year}-{year_ladder_start[:2]}-{year_ladder_start[2:]}"
                 
                 # 计算年累计用电量
-                # 优先使用 yearList（完整累计），fallback 日累计
-                year_accumulated = 0
-                year_list = self.coordinator.data.get("yearList", [])
-                ladder_year_str = str(ladder_year)
-                for yr in year_list:
-                    if yr.get("year") == ladder_year_str and yr.get("yearEleNum", 0) > 0:
-                        year_accumulated = yr["yearEleNum"]
-                        break
-                if year_accumulated == 0:
-                    for data in day_list:
-                        if data["day"] >= year_ladder_start_date and data["day"] <= current_day:
-                            year_accumulated += data["dayEleNum"]
+                year_accumulated = self.coordinator._get_year_accumulated(
+                    ladder_year, year_ladder_start_date, current_day
+                )
                 
                 # 确定当前阶梯档
                 if year_accumulated <= ladder_level_1:
