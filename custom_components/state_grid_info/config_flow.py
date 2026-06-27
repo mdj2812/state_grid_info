@@ -144,6 +144,8 @@ class StateGridInfoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self._data[CONF_MQTT_PASSWORD] = user_input[CONF_MQTT_PASSWORD]
             self._data[CONF_STATE_GRID_ID] = user_input[CONF_STATE_GRID_ID]
             self._data[CONF_CONSUMER_NUMBER] = user_input[CONF_STATE_GRID_ID]
+            # 青龙流程无户名来源，用户号作为默认户名
+            self._data[CONF_CONSUMER_NAME] = user_input[CONF_STATE_GRID_ID]
             
             # 可以在这里添加MQTT连接测试
             
@@ -493,6 +495,8 @@ class StateGridInfoOptionsFlowHandler(config_entries.OptionsFlow):
             self._data[CONF_MQTT_PASSWORD] = user_input[CONF_MQTT_PASSWORD]
             self._data[CONF_STATE_GRID_ID] = user_input[CONF_STATE_GRID_ID]
             self._data[CONF_CONSUMER_NUMBER] = user_input[CONF_STATE_GRID_ID]
+            # 青龙流程无户名来源，用户号作为默认户名
+            self._data[CONF_CONSUMER_NAME] = user_input[CONF_STATE_GRID_ID]
             
             return await self.async_step_billing_standard()
         

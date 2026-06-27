@@ -44,9 +44,16 @@ async def async_setup_entry(
     await coordinator.async_config_entry_first_refresh()
     
     # 创建传感器实体
-    sensor = StateGridInfoSensor(coordinator, config)
-    energy_sensor = StateGridCumulativeEnergySensor(coordinator, config)
-    entities = [sensor, energy_sensor]
+    entities = [
+        StateGridInfoSensor(coordinator, config),
+        StateGridCumulativeEnergySensor(coordinator, config),
+        StateGridYearCostSensor(coordinator, config),
+        StateGridCumulativeCostSensor(coordinator, config),
+        StateGridTodayEnergySensor(coordinator, config),
+        StateGridMonthEnergySensor(coordinator, config),
+        StateGridMonthCostSensor(coordinator, config),
+        StateGridYearEnergySensor(coordinator, config),
+    ]
     
     # 存储实体以便在卸载时访问
     if DOMAIN in hass.data and entry.entry_id in hass.data[DOMAIN]:
@@ -82,6 +89,9 @@ class StateGridInfoDataCoordinator(DataUpdateCoordinator):
         await self._storage.async_load()
         if self._storage.data.get("dayList"):
             self.data = dict(self._storage.data)
+            # Update timestamp so the expiry check in _async_update_data
+            # doesn't discard freshly-loaded storage data on first refresh
+            self.last_update_time = datetime.now()
 
     def _setup_data_source(self):
         """Set up the data source based on configuration."""
@@ -569,8 +579,9 @@ class StateGridInfoDataCoordinator(DataUpdateCoordinator):
         """Process Qinglong script data."""
         try:
             dayList_ori = payload.get("dayList", [])
-            # Extract totalEleNum from MQTT payload for accurate year-ladder calculation
+            # Extract totalEleNum and totalEleCost from MQTT for accurate calculations
             total_ele_num = float(payload.get("totalEleNum", 0))
+            total_ele_cost = float(payload.get("totalEleCost", 0))
             
             # 重写日结构
             dayList7 = []
@@ -591,6 +602,7 @@ class StateGridInfoDataCoordinator(DataUpdateCoordinator):
                 "balance": float(payload.get("sumMoney", 0)),
                 "dayList": dayList7,
                 "totalEleNum": total_ele_num,
+                "totalEleCost": total_ele_cost,
             }
             
             # 临时保存当前的 self.data
@@ -619,6 +631,8 @@ class StateGridInfoDataCoordinator(DataUpdateCoordinator):
                 "dayList": dayList,
                 "monthList": monthList,
                 "yearList": yearList,
+                "totalEleNum": total_ele_num,
+                "totalEleCost": total_ele_cost,
             }
         except Exception as ex:
             _LOGGER.error("Error processing Qinglong data: %s", ex)
@@ -1362,7 +1376,41 @@ class StateGridInfoDataCoordinator(DataUpdateCoordinator):
             return []
 
 
-class StateGridCumulativeEnergySensor(SensorEntity):
+class _StateGridSensor(SensorEntity):
+    """Base sensor with shared device_info and availability logic."""
+
+    def __init__(self, coordinator, config):
+        """Initialize base sensor."""
+        self.coordinator = coordinator
+        self.config = config
+        self._consumer_number = config.get(CONF_CONSUMER_NUMBER, "")
+
+    def _get_consumer_name(self):
+        """Get consumer name from live data or config fallback."""
+        if self.coordinator.data and self.coordinator.data.get("consumer_name"):
+            return self.coordinator.data["consumer_name"]
+        return self.config.get(CONF_CONSUMER_NAME, "")
+
+    @property
+    def device_info(self):
+        """Return device info — all sensors share the same device."""
+        return {
+            "identifiers": {(DOMAIN, f"state_grid_{self._consumer_number}")},
+            "name": f"国家电网 {self._consumer_number}",
+            "manufacturer": "国家电网",
+            "model": f"户名:{self._get_consumer_name()}"
+        }
+
+    @property
+    def available(self):
+        """Return if entity is available."""
+        if not self.coordinator.data:
+            return False
+        time_diff = datetime.now() - self.coordinator.last_update_time
+        return time_diff.total_seconds() <= 3600
+
+
+class StateGridCumulativeEnergySensor(_StateGridSensor):
     """Cumulative energy consumption sensor for HA Energy dashboard.
     
     Provides a total_increasing energy meter reading suitable for
@@ -1376,40 +1424,10 @@ class StateGridCumulativeEnergySensor(SensorEntity):
 
     def __init__(self, coordinator, config):
         """Initialize the cumulative energy sensor."""
-        self.coordinator = coordinator
-        self.config = config
+        super().__init__(coordinator, config)
         consumer_number = config.get(CONF_CONSUMER_NUMBER, "")
-        consumer_name = config.get(CONF_CONSUMER_NAME, "")
         self._attr_unique_id = f"state_grid_{consumer_number}_energy"
         self._attr_name = f"国家电网 {consumer_number} 累计用电"
-        self._consumer_number = consumer_number
-        self._consumer_name = consumer_name
-
-    @property
-    def device_info(self):
-        """Return device info (same device as balance sensor)."""
-        consumer_name = ""
-        if self.coordinator.data and "consumer_name" in self.coordinator.data:
-            consumer_name = self.coordinator.data.get("consumer_name", "")
-        elif self._consumer_name:
-            consumer_name = self._consumer_name
-
-        return {
-            "identifiers": {(DOMAIN, f"state_grid_{self._consumer_number}")},
-            "name": f"国家电网 {self._consumer_number}",
-            "manufacturer": "国家电网",
-            "model": f"户名:{consumer_name}"
-        }
-
-    @property
-    def available(self):
-        """Return if entity is available."""
-        if not self.coordinator.data:
-            return False
-        time_diff = datetime.now() - self.coordinator.last_update_time
-        if time_diff.total_seconds() > 3600:
-            return False
-        return True
 
     @property
     def native_value(self):
@@ -1418,6 +1436,153 @@ class StateGridCumulativeEnergySensor(SensorEntity):
             day_list = self.coordinator.data.get("dayList", [])
             if day_list:
                 return sum(d.get("dayEleNum", 0) for d in day_list)
+        return 0
+
+
+class StateGridTodayEnergySensor(_StateGridSensor):
+    """Today's electricity consumption (kWh)."""
+
+    _attr_device_class = SensorDeviceClass.ENERGY
+    _attr_state_class = SensorStateClass.TOTAL
+    _attr_native_unit_of_measurement = "kWh"
+    _attr_icon = "mdi:calendar-today"
+
+    def __init__(self, coordinator, config):
+        super().__init__(coordinator, config)
+        n = config.get(CONF_CONSUMER_NUMBER, "")
+        self._attr_unique_id = f"state_grid_{n}_energy_today"
+        self._attr_name = f"国家电网 {n} 今日用电"
+
+    @property
+    def native_value(self):
+        if self.coordinator.data:
+            day_list = self.coordinator.data.get("dayList", [])
+            if day_list:
+                sorted_days = sorted(day_list, key=lambda d: d["day"], reverse=True)
+                return sorted_days[0].get("dayEleNum", 0)
+        return 0
+
+
+class StateGridMonthEnergySensor(_StateGridSensor):
+    """This month's electricity consumption (kWh)."""
+
+    _attr_device_class = SensorDeviceClass.ENERGY
+    _attr_state_class = SensorStateClass.TOTAL
+    _attr_native_unit_of_measurement = "kWh"
+    _attr_icon = "mdi:calendar-month"
+
+    def __init__(self, coordinator, config):
+        super().__init__(coordinator, config)
+        n = config.get(CONF_CONSUMER_NUMBER, "")
+        self._attr_unique_id = f"state_grid_{n}_energy_month"
+        self._attr_name = f"国家电网 {n} 本月用电"
+
+    @property
+    def native_value(self):
+        if self.coordinator.data:
+            current_month = datetime.now().strftime("%Y-%m")
+            for m in self.coordinator.data.get("monthList", []):
+                if m.get("month") == current_month:
+                    return m.get("monthEleNum", 0)
+        return 0
+
+
+class StateGridMonthCostSensor(_StateGridSensor):
+    """This month's electricity cost (元)."""
+
+    _attr_device_class = SensorDeviceClass.MONETARY
+    _attr_state_class = SensorStateClass.TOTAL
+    _attr_native_unit_of_measurement = "元"
+    _attr_icon = "mdi:cash"
+
+    def __init__(self, coordinator, config):
+        super().__init__(coordinator, config)
+        n = config.get(CONF_CONSUMER_NUMBER, "")
+        self._attr_unique_id = f"state_grid_{n}_cost_month"
+        self._attr_name = f"国家电网 {n} 本月电费"
+
+    @property
+    def native_value(self):
+        if self.coordinator.data:
+            current_month = datetime.now().strftime("%Y-%m")
+            for m in self.coordinator.data.get("monthList", []):
+                if m.get("month") == current_month:
+                    return m.get("monthEleCost", 0)
+        return 0
+
+
+class StateGridYearEnergySensor(_StateGridSensor):
+    """This year's electricity consumption (kWh)."""
+
+    _attr_device_class = SensorDeviceClass.ENERGY
+    _attr_state_class = SensorStateClass.TOTAL
+    _attr_native_unit_of_measurement = "kWh"
+    _attr_icon = "mdi:calendar-multiselect"
+
+    def __init__(self, coordinator, config):
+        super().__init__(coordinator, config)
+        n = config.get(CONF_CONSUMER_NUMBER, "")
+        self._attr_unique_id = f"state_grid_{n}_energy_year"
+        self._attr_name = f"国家电网 {n} 本年用电"
+
+    @property
+    def native_value(self):
+        if self.coordinator.data:
+            current_year = datetime.now().strftime("%Y")
+            for y in self.coordinator.data.get("yearList", []):
+                if y.get("year") == current_year:
+                    return y.get("yearEleNum", 0)
+        return 0
+
+
+class StateGridYearCostSensor(_StateGridSensor):
+    """This year's electricity cost sensor (元).
+
+    Uses totalEleCost from MQTT payload — the meter's
+    cumulative cost for the current year.
+    """
+
+    _attr_device_class = SensorDeviceClass.MONETARY
+    _attr_state_class = SensorStateClass.TOTAL
+    _attr_native_unit_of_measurement = "元"
+    _attr_icon = "mdi:cash-multiple"
+
+    def __init__(self, coordinator, config):
+        super().__init__(coordinator, config)
+        n = config.get(CONF_CONSUMER_NUMBER, "")
+        self._attr_unique_id = f"state_grid_{n}_cost_year"
+        self._attr_name = f"国家电网 {n} 本年电费"
+
+    @property
+    def native_value(self):
+        if self.coordinator.data:
+            return self.coordinator.data.get("totalEleCost", 0)
+        return 0
+
+
+class StateGridCumulativeCostSensor(_StateGridSensor):
+    """Cumulative electricity cost from dayList (元).
+
+    Sums dayEleCost across all persisted daily records.
+    """
+
+    _attr_device_class = SensorDeviceClass.MONETARY
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+    _attr_native_unit_of_measurement = "元"
+    _attr_icon = "mdi:cash-plus"
+
+    def __init__(self, coordinator, config):
+        super().__init__(coordinator, config)
+        n = config.get(CONF_CONSUMER_NUMBER, "")
+        self._attr_unique_id = f"state_grid_{n}_cost_total"
+        self._attr_name = f"国家电网 {n} 累计电费"
+
+    @property
+    def native_value(self):
+        if self.coordinator.data:
+            day_list = self.coordinator.data.get("dayList", [])
+            if day_list:
+                return sum(d.get("dayEleCost", 0) for d in day_list)
         return 0
 
 
@@ -1433,7 +1598,7 @@ class StateGridInfoSensor(SensorEntity):
         self._attr_unique_id = f"state_grid_{consumer_number}"
         self._attr_icon = "mdi:flash"
 
-        self._attr_name = f"国家电网 {consumer_number}"
+        self._attr_name = f"国家电网 {consumer_number} 余额"
         self._attr_native_unit_of_measurement = "元"
         self._attr_device_class = SensorDeviceClass.MONETARY
         self._attr_state_class = SensorStateClass.TOTAL
