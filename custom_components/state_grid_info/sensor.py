@@ -624,9 +624,6 @@ class StateGridInfoDataCoordinator(DataUpdateCoordinator):
                 "dayList": dayList,
                 "monthList": monthList,
                 "yearList": yearList,
-                "consumer_name": payload.get("consName", ""),
-                "address": payload.get("address", ""),
-                "org_name": payload.get("orgName", ""),
             }
         except Exception as ex:
             _LOGGER.error("Error processing Qinglong data: %s", ex)
@@ -1380,34 +1377,20 @@ class _StateGridSensor(SensorEntity):
         self._consumer_number = config.get(CONF_CONSUMER_NUMBER, "")
 
     def _get_consumer_name(self):
-        """Get consumer name from live data, config, or fallback to number."""
+        """Get consumer name from live data or config fallback."""
         if self.coordinator.data and self.coordinator.data.get("consumer_name"):
             return self.coordinator.data["consumer_name"]
-        name = self.config.get(CONF_CONSUMER_NAME, "")
-        if name:
-            return name
-        return self._consumer_number  # last resort: show meter number
+        return self.config.get(CONF_CONSUMER_NAME, "")
 
     @property
     def device_info(self):
         """Return device info — all sensors share the same device."""
-        consumer_name = self._get_consumer_name()
-        data = self.coordinator.data or {}
-        org_name = data.get("org_name", "")
-
-        model_parts = [f"户名:{consumer_name}"]
-        if org_name:
-            model_parts.append(org_name)
-
-        info = {
+        return {
             "identifiers": {(DOMAIN, f"state_grid_{self._consumer_number}")},
             "name": f"国家电网 {self._consumer_number}",
             "manufacturer": "国家电网",
-            "model": " | ".join(model_parts),
+            "model": f"户名:{self._get_consumer_name()}"
         }
-        if org_name:
-            info["suggested_area"] = org_name
-        return info
 
     @property
     def available(self):
@@ -1641,15 +1624,6 @@ class StateGridInfoSensor(SensorEntity):
                             attrs["日均消费"] = round(avg_daily_cost, 2)
                             attrs["剩余天数"] = math.ceil(remaining_days)
                             attrs["预付费"] = "是" if self.config.get(CONF_IS_PREPAID, False) else "否"
-                            
-                            # Device info fields from MQTT payload
-                            data = self.coordinator.data
-                            if data.get("address"):
-                                attrs["地址"] = data["address"]
-                            if data.get("org_name"):
-                                attrs["供电站"] = data["org_name"]
-                            if data.get("consumer_name"):
-                                attrs["户名"] = data["consumer_name"]
                             
                         except (ValueError, IndexError) as e:
                             _LOGGER.error("计算剩余天数时出错: %s", e)
