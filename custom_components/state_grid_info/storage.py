@@ -98,13 +98,16 @@ class StateGridStorage:
                 existing_map[k] = item
         return sorted(existing_map.values(), key=lambda x: x[key], reverse=True)
 
+    # Fields that use key-based merge (lists), not scalar overwrite
+    _LIST_FIELDS = {"dayList", "monthList", "yearList"}
+
     def update(self, new_data: dict[str, Any]) -> dict[str, Any]:
         """Update storage with new data, then return merged result.
 
+        - Scalar fields: always overwrite with new data values
         - dayList: merge by "day"
         - monthList: merge by "month"
         - yearList: merge by "year"
-        - Scalar fields (date, balance, consumer_name): always update
 
         Note: This method does synchronous file I/O via _save_sync.
         It must be called via hass.async_add_executor_job from async code.
@@ -112,12 +115,11 @@ class StateGridStorage:
         if not new_data:
             return self._data
 
-        # Merge scalar fields - always update
-        self._data["date"] = new_data.get("date", self._data.get("date", ""))
-        self._data["balance"] = new_data.get("balance", self._data.get("balance", 0))
-        self._data["consumer_name"] = new_data.get(
-            "consumer_name", self._data.get("consumer_name", "")
-        )
+        # Merge scalar fields — dynamically, no hardcoded field names
+        for key, value in new_data.items():
+            if key in self._LIST_FIELDS:
+                continue
+            self._data[key] = value
 
         # Merge dayList by "day"
         if "dayList" in new_data:
