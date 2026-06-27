@@ -44,9 +44,9 @@ async def async_setup_entry(
     await coordinator.async_config_entry_first_refresh()
     
     # 创建传感器实体
-    balance_sensor = StateGridInfoSensor(coordinator, config)
+    sensor = StateGridInfoSensor(coordinator, config)
     energy_sensor = StateGridCumulativeEnergySensor(coordinator, config)
-    entities = [balance_sensor, energy_sensor]
+    entities = [sensor, energy_sensor]
     
     # 存储实体以便在卸载时访问
     if DOMAIN in hass.data and entry.entry_id in hass.data[DOMAIN]:
@@ -1417,7 +1417,7 @@ class StateGridCumulativeEnergySensor(SensorEntity):
         if self.coordinator.data:
             day_list = self.coordinator.data.get("dayList", [])
             if day_list:
-                return round(sum(d.get("dayEleNum", 0) for d in day_list), 2)
+                return sum(d.get("dayEleNum", 0) for d in day_list)
         return 0
 
 
