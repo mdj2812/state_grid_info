@@ -88,6 +88,9 @@ class StateGridInfoDataCoordinator(DataUpdateCoordinator):
         await self._storage.async_load()
         if self._storage.data.get("dayList"):
             self.data = dict(self._storage.data)
+            # Update timestamp so the expiry check in _async_update_data
+            # doesn't discard freshly-loaded storage data on first refresh
+            self.last_update_time = datetime.now()
 
     def _setup_data_source(self):
         """Set up the data source based on configuration."""
