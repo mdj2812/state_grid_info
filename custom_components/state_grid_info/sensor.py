@@ -1401,7 +1401,7 @@ class _StateGridSensor(SensorEntity):
             "model": consumer_name if consumer_name else self._consumer_number,
         }
         if org_name:
-            info["sw_version"] = org_name
+            info["suggested_area"] = org_name
         return info
 
     @property
