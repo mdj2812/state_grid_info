@@ -567,6 +567,8 @@ class StateGridInfoDataCoordinator(DataUpdateCoordinator):
         """Process Qinglong script data."""
         try:
             dayList_ori = payload.get("dayList", [])
+            # Extract totalEleNum from MQTT payload for accurate year-ladder calculation
+            total_ele_num = float(payload.get("totalEleNum", 0))
             
             # 重写日结构
             dayList7 = []
@@ -586,6 +588,7 @@ class StateGridInfoDataCoordinator(DataUpdateCoordinator):
                 "date": payload.get("date", ""),
                 "balance": float(payload.get("sumMoney", 0)),
                 "dayList": dayList7,
+                "totalEleNum": total_ele_num,
             }
             
             # 临时保存当前的 self.data
@@ -605,8 +608,8 @@ class StateGridInfoDataCoordinator(DataUpdateCoordinator):
             monthList_ori = payload.get("monthList", [])
             monthList = self._process_month_data(dayList, monthList_ori)
             
-            # 处理年数据
-            yearList = self._process_year_data(monthList)
+            # 处理年数据，传入 totalEleNum 确保年累计电量准确
+            yearList = self._process_year_data(monthList, total_ele_num)
             
             return {
                 "date": payload.get("date", ""),
@@ -646,6 +649,30 @@ class StateGridInfoDataCoordinator(DataUpdateCoordinator):
         except Exception as ex:
             _LOGGER.error("Error calculating daily cost: %s", ex)
             return day_list
+
+    def _get_year_accumulated(self, ladder_year, year_ladder_start_date, current_day):
+        """Get accumulated electricity usage for the current ladder year.
+        
+        Priority: totalEleNum (MQTT) > yearList (persisted) > dayList sum.
+        """
+        year_accumulated = 0
+        if self.data is None:
+            return year_accumulated
+        
+        total_ele = self.data.get("totalEleNum", 0)
+        if total_ele > 0:
+            return total_ele
+        
+        year_list = self.data.get("yearList", [])
+        ladder_year_str = str(ladder_year)
+        for yr in year_list:
+            if yr.get("year") == ladder_year_str and yr.get("yearEleNum", 0) > 0:
+                return yr["yearEleNum"]
+        
+        for data in self.data.get("dayList", []):
+            if data["day"] >= year_ladder_start_date and data["day"] <= current_day:
+                year_accumulated += data["dayEleNum"]
+        return year_accumulated
 
     def _calculate_cost_by_standard(self, day_data, standard):
         """Calculate cost based on specific billing standard."""
@@ -689,14 +716,10 @@ class StateGridInfoDataCoordinator(DataUpdateCoordinator):
                 year_ladder_end_date = f"{ladder_year + 1}-{year_ladder_start[:2]}-{year_ladder_start[2:]}"
                 
                 # 计算累计用电量
-                year_accumulated = 0
-                
-                if self.data is not None:
-                    for data in self.data.get("dayList", []):
-                        # 计算年累计用电量：从年阶梯起始日期到当前日期
-                        if (data["day"] >= year_ladder_start_date and 
-                            data["day"] <= current_day):
-                            year_accumulated += data["dayEleNum"]
+                # 优先使用 MQTT totalEleNum / yearList（完整累计），fallback 日累计
+                year_accumulated = self._get_year_accumulated(
+                    ladder_year, year_ladder_start_date, current_day
+                )
                 
                 # 根据累计用电量计算阶梯电价
                 if year_accumulated <= ladder_level_1:
@@ -783,14 +806,9 @@ class StateGridInfoDataCoordinator(DataUpdateCoordinator):
                 year_ladder_end_date = f"{ladder_year + 1}-{year_ladder_start[:2]}-{year_ladder_start[2:]}"
                 
                 # 计算累计用电量
-                year_accumulated = 0
-                
-                if self.data is not None:
-                    for data in self.data.get("dayList", []):
-                        # 计算年累计用电量：从年阶梯起始日期到当前日期
-                        if (data["day"] >= year_ladder_start_date and 
-                            data["day"] <= current_day):
-                            year_accumulated += data["dayEleNum"]
+                year_accumulated = self._get_year_accumulated(
+                    ladder_year, year_ladder_start_date, current_day
+                )
                 
                 # 根据累计用电量确定当前阶梯
                 if year_accumulated <= ladder_level_1:
@@ -1282,8 +1300,14 @@ class StateGridInfoDataCoordinator(DataUpdateCoordinator):
             _LOGGER.error("Error calculating month data: %s", ex)
             return None
 
-    def _process_year_data(self, month_list):
-        """Process and calculate yearly data from monthly data."""
+    def _process_year_data(self, month_list, current_year_total=0.0):
+        """Process and calculate yearly data from monthly data.
+        
+        Args:
+            month_list: List of monthly data dicts.
+            current_year_total: If > 0, use as the authoritative yearEleNum
+                for the current year (e.g., from MQTT totalEleNum).
+        """
         try:
             year_map = {}  # 用于按年份暂存数据
             
@@ -1307,6 +1331,14 @@ class StateGridInfoDataCoordinator(DataUpdateCoordinator):
                 year_map[year]["yearPPq"] += month_data.get("monthPPq", 0)
                 year_map[year]["yearNPq"] += month_data.get("monthNPq", 0)
                 year_map[year]["yearVPq"] += month_data.get("monthVPq", 0)
+            
+            # If totalEleNum is available from MQTT, use it as the authoritative
+            # year total instead of summing months (dayList may be incomplete)
+            if current_year_total > 0:
+                from datetime import datetime as _dt
+                current_year = _dt.now().strftime("%Y")
+                if current_year in year_map:
+                    year_map[current_year]["yearEleNum"] = current_year_total
             
             # 四舍五入到两位小数
             year_list = []
@@ -1620,10 +1652,9 @@ class StateGridInfoSensor(SensorEntity):
                 year_ladder_start_date = f"{ladder_year}-{year_ladder_start[:2]}-{year_ladder_start[2:]}"
                 
                 # 计算年累计用电量
-                year_accumulated = 0
-                for data in day_list:
-                    if data["day"] >= year_ladder_start_date and data["day"] <= current_day:
-                        year_accumulated += data["dayEleNum"]
+                year_accumulated = self.coordinator._get_year_accumulated(
+                    ladder_year, year_ladder_start_date, current_day
+                )
                 
                 # 确定当前阶梯档
                 if year_accumulated <= ladder_level_1:
