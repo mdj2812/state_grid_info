@@ -51,6 +51,7 @@ async def async_setup_entry(
         StateGridMonthEnergySensor(coordinator, config),
         StateGridMonthCostSensor(coordinator, config),
         StateGridYearEnergySensor(coordinator, config),
+        StateGridAccountSensor(coordinator, config),
     ]
     
     # 存储实体以便在卸载时访问
@@ -1401,7 +1402,7 @@ class _StateGridSensor(SensorEntity):
             "model": consumer_name if consumer_name else self._consumer_number,
         }
         if org_name:
-            info["sw_version"] = org_name
+            info["suggested_area"] = org_name
         return info
 
     @property
@@ -1536,6 +1537,33 @@ class StateGridYearEnergySensor(_StateGridSensor):
                 if y.get("year") == current_year:
                     return y.get("yearEleNum", 0)
         return 0
+
+
+class StateGridAccountSensor(_StateGridSensor):
+    """Account metadata sensor — displays 户名/地址/供电站 as attributes."""
+
+    _attr_icon = "mdi:card-account-details"
+    _attr_native_unit_of_measurement = None
+
+    def __init__(self, coordinator, config):
+        super().__init__(coordinator, config)
+        n = config.get(CONF_CONSUMER_NUMBER, "")
+        self._attr_unique_id = f"state_grid_{n}_account"
+        self._attr_name = f"国家电网 {n} 账户信息"
+
+    @property
+    def native_value(self):
+        return self._get_consumer_name()
+
+    @property
+    def extra_state_attributes(self):
+        data = self.coordinator.data or {}
+        return {
+            "户号": self._consumer_number,
+            "户名": self._get_consumer_name(),
+            "地址": data.get("address", ""),
+            "供电站": data.get("org_name", ""),
+        }
 
 
 class StateGridInfoSensor(SensorEntity):
