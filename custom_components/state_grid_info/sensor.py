@@ -47,6 +47,7 @@ async def async_setup_entry(
     entities = [
         StateGridInfoSensor(coordinator, config),
         StateGridCumulativeEnergySensor(coordinator, config),
+        StateGridTotalCostSensor(coordinator, config),
         StateGridTodayEnergySensor(coordinator, config),
         StateGridMonthEnergySensor(coordinator, config),
         StateGridMonthCostSensor(coordinator, config),
@@ -1523,6 +1524,33 @@ class StateGridYearEnergySensor(_StateGridSensor):
             for y in self.coordinator.data.get("yearList", []):
                 if y.get("year") == current_year:
                     return y.get("yearEleNum", 0)
+        return 0
+
+
+class StateGridTotalCostSensor(_StateGridSensor):
+    """Cumulative electricity cost sensor (元).
+
+    Sums all dayEleCost across the persisted dayList — total
+    electricity charges since meter activation.
+    """
+
+    _attr_device_class = SensorDeviceClass.MONETARY
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+    _attr_native_unit_of_measurement = "元"
+    _attr_icon = "mdi:cash-multiple"
+
+    def __init__(self, coordinator, config):
+        super().__init__(coordinator, config)
+        n = config.get(CONF_CONSUMER_NUMBER, "")
+        self._attr_unique_id = f"state_grid_{n}_cost_total"
+        self._attr_name = f"国家电网 {n} 累计电费"
+
+    @property
+    def native_value(self):
+        if self.coordinator.data:
+            day_list = self.coordinator.data.get("dayList", [])
+            if day_list:
+                return sum(d.get("dayEleCost", 0) for d in day_list)
         return 0
 
 
