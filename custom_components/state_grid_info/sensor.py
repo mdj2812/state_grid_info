@@ -578,8 +578,9 @@ class StateGridInfoDataCoordinator(DataUpdateCoordinator):
         """Process Qinglong script data."""
         try:
             dayList_ori = payload.get("dayList", [])
-            # Extract totalEleNum from MQTT payload for accurate year-ladder calculation
+            # Extract totalEleNum and totalEleCost from MQTT for accurate calculations
             total_ele_num = float(payload.get("totalEleNum", 0))
+            total_ele_cost = float(payload.get("totalEleCost", 0))
             
             # 重写日结构
             dayList7 = []
@@ -600,6 +601,7 @@ class StateGridInfoDataCoordinator(DataUpdateCoordinator):
                 "balance": float(payload.get("sumMoney", 0)),
                 "dayList": dayList7,
                 "totalEleNum": total_ele_num,
+                "totalEleCost": total_ele_cost,
             }
             
             # 临时保存当前的 self.data
@@ -628,6 +630,8 @@ class StateGridInfoDataCoordinator(DataUpdateCoordinator):
                 "dayList": dayList,
                 "monthList": monthList,
                 "yearList": yearList,
+                "totalEleNum": total_ele_num,
+                "totalEleCost": total_ele_cost,
             }
         except Exception as ex:
             _LOGGER.error("Error processing Qinglong data: %s", ex)
@@ -1531,29 +1535,27 @@ class StateGridYearEnergySensor(_StateGridSensor):
 
 
 class StateGridTotalCostSensor(_StateGridSensor):
-    """Cumulative electricity cost sensor (元).
+    """This year's electricity cost sensor (元).
 
-    Sums all dayEleCost across the persisted dayList — total
-    electricity charges since meter activation.
+    Uses totalEleCost from MQTT payload — the meter's
+    cumulative cost for the current year.
     """
 
     _attr_device_class = SensorDeviceClass.MONETARY
-    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+    _attr_state_class = SensorStateClass.TOTAL
     _attr_native_unit_of_measurement = "元"
     _attr_icon = "mdi:cash-multiple"
 
     def __init__(self, coordinator, config):
         super().__init__(coordinator, config)
         n = config.get(CONF_CONSUMER_NUMBER, "")
-        self._attr_unique_id = f"state_grid_{n}_cost_total"
-        self._attr_name = f"国家电网 {n} 累计电费"
+        self._attr_unique_id = f"state_grid_{n}_cost_year"
+        self._attr_name = f"国家电网 {n} 本年电费"
 
     @property
     def native_value(self):
         if self.coordinator.data:
-            day_list = self.coordinator.data.get("dayList", [])
-            if day_list:
-                return sum(d.get("dayEleCost", 0) for d in day_list)
+            return self.coordinator.data.get("totalEleCost", 0)
         return 0
 
 

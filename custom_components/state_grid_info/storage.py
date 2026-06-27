@@ -118,6 +118,12 @@ class StateGridStorage:
         self._data["consumer_name"] = new_data.get(
             "consumer_name", self._data.get("consumer_name", "")
         )
+        self._data["totalEleNum"] = new_data.get(
+            "totalEleNum", self._data.get("totalEleNum", 0)
+        )
+        self._data["totalEleCost"] = new_data.get(
+            "totalEleCost", self._data.get("totalEleCost", 0)
+        )
 
         # Merge dayList by "day"
         if "dayList" in new_data:
