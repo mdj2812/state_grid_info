@@ -1387,7 +1387,6 @@ class _StateGridSensor(SensorEntity):
         if name:
             return name
         return self._consumer_number  # last resort: show meter number
-
     @property
     def device_info(self):
         """Return device info — all sensors share the same device."""
@@ -1395,15 +1394,11 @@ class _StateGridSensor(SensorEntity):
         data = self.coordinator.data or {}
         org_name = data.get("org_name", "")
 
-        model_parts = [f"户名:{consumer_name}"]
-        if org_name:
-            model_parts.append(org_name)
-
         info = {
             "identifiers": {(DOMAIN, f"state_grid_{self._consumer_number}")},
             "name": f"国家电网 {self._consumer_number}",
             "manufacturer": "国家电网",
-            "model": " | ".join(model_parts),
+            "model": consumer_name if consumer_name else self._consumer_number,
         }
         if org_name:
             info["suggested_area"] = org_name
