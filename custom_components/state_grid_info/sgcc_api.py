@@ -95,7 +95,7 @@ class SgccAuthError(SgccError):
 class SgccClient:
     """Async SGCC API client using api.120399.xyz encryption proxy."""
 
-    def __init__(self, debug: bool = False, timeout: int = 60) -> None:
+    def __init__(self, debug: bool = False, timeout: int = 90) -> None:
         self.debug = debug
         self.timeout = timeout
         self._session: Optional[aiohttp.ClientSession] = None
@@ -247,27 +247,28 @@ class SgccClient:
 
         result = await self._decrypt(decrypt_params)
 
-        # Handle RK1003 captcha — retry with captcha params
+        # Handle captcha/timeout — retry with increasing backoff
         if result.get("needRetry") and retry_count < max_captcha_retries:
-            self._log(f"RK1003 验证码，第{retry_count + 1}次重试...")
+            code = result.get("code", "")
+            self._log(f"请求失败 code={code}，第{retry_count + 1}次重试...")
+            await asyncio.sleep(3 * (retry_count + 1))  # 3s, 6s, 9s backoff
+            
+            # First retry: plain re-request (often just works)
+            # Second+ retry: add captcha bypass params
             new_config = {**config}
-            if new_config.get("data"):
+            if retry_count >= 1 and new_config.get("data"):
                 import copy
                 new_config["data"] = copy.deepcopy(new_config["data"])
-                # Navigate to add captcha fields (top-level or nested in params)
                 inner = new_config["data"]
-                # For login: data.params.quInfo
                 if "params" in inner and "quInfo" in inner.get("params", {}):
                     inner["params"]["quInfo"]["complexSliderRet"] = 0
                     inner["params"]["quInfo"]["complexSliderType"] = "clickImg"
-                # For other APIs: data.data
                 if "data" in inner and isinstance(inner["data"], dict):
                     inner["data"]["complexSliderRet"] = 0
                     inner["data"]["complexSliderType"] = "clickImg"
-                # Also set at top data level
                 inner["complexSliderRet"] = 0
                 inner["complexSliderType"] = "clickImg"
-            await asyncio.sleep(2)
+            
             return await self._sgcc_request(new_config, retry_count=retry_count + 1, max_captcha_retries=max_captcha_retries)
 
         return result
