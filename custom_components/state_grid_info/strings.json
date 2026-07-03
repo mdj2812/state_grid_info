@@ -45,6 +45,13 @@
           "consumer_number": "户号"
         }
       },
+      "update_interval": {
+        "title": "更新间隔",
+        "description": "设置数据刷新间隔（小时），SGCC直连建议≥6小时",
+        "data": {
+          "update_interval": "间隔（小时）"
+        }
+      },
       "billing_type": {
         "title": "选择计费类型",
         "description": "请选择电费计费类型",
@@ -146,6 +153,13 @@
         "description": "请选择要查询的用电户号",
         "data": {
           "consumer_number": "户号"
+        }
+      },
+      "update_interval": {
+        "title": "更新间隔",
+        "description": "设置数据刷新间隔（小时），SGCC直连建议≥6小时",
+        "data": {
+          "update_interval": "间隔（小时）"
         }
       },
       "billing_standard": {

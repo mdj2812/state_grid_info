@@ -22,7 +22,7 @@ from .const import (
     CONF_DATA_SOURCE, CONF_BILLING_STANDARD,
     CONF_CONSUMER_NUMBER, CONF_CONSUMER_NUMBER_INDEX, CONF_CONSUMER_NAME,
     CONF_MQTT_HOST, CONF_MQTT_PORT, CONF_MQTT_USERNAME, CONF_MQTT_PASSWORD, CONF_STATE_GRID_ID,
-    CONF_SGCC_USERNAME, CONF_SGCC_PASSWORD,
+    CONF_SGCC_USERNAME, CONF_SGCC_PASSWORD, CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL_HOURS,
     CONF_LADDER_LEVEL_1, CONF_LADDER_LEVEL_2,
     CONF_LADDER_PRICE_1, CONF_LADDER_PRICE_2, CONF_LADDER_PRICE_3,
     CONF_YEAR_LADDER_START,
@@ -69,7 +69,12 @@ class StateGridInfoDataCoordinator(DataUpdateCoordinator):
 
     def __init__(self, hass: HomeAssistant, config: dict):
         """Initialize the data coordinator."""
-        update_interval = timedelta(hours=6) if config.get(CONF_DATA_SOURCE) == DATA_SOURCE_SGCC_DIRECT else timedelta(minutes=10)
+        hours = config.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL_HOURS if config.get(CONF_DATA_SOURCE) == DATA_SOURCE_SGCC_DIRECT else 0.17)
+        try:
+            hours = float(hours)
+        except (TypeError, ValueError):
+            hours = DEFAULT_UPDATE_INTERVAL_HOURS
+        update_interval = timedelta(hours=hours)
         super().__init__(
             hass,
             _LOGGER,

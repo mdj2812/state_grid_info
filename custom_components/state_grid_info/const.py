@@ -89,3 +89,7 @@ CONF_AVERAGE_PRICE = "average_price"
 
 # 预付费配置
 CONF_IS_PREPAID = "is_prepaid"
+
+# 更新间隔配置
+CONF_UPDATE_INTERVAL = "update_interval"
+DEFAULT_UPDATE_INTERVAL_HOURS = 6  # SGCC直连默认6小时

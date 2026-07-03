@@ -20,7 +20,7 @@ from .const import (
     CONF_DATA_SOURCE, CONF_BILLING_STANDARD,
     CONF_CONSUMER_NUMBER, CONF_CONSUMER_NUMBER_INDEX, CONF_CONSUMER_NAME,
     CONF_MQTT_HOST, CONF_MQTT_PORT, CONF_MQTT_USERNAME, CONF_MQTT_PASSWORD, CONF_STATE_GRID_ID,
-    CONF_SGCC_USERNAME, CONF_SGCC_PASSWORD,
+    CONF_SGCC_USERNAME, CONF_SGCC_PASSWORD, CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL_HOURS,
     CONF_LADDER_LEVEL_1, CONF_LADDER_LEVEL_2,
     CONF_LADDER_PRICE_1, CONF_LADDER_PRICE_2, CONF_LADDER_PRICE_3,
     CONF_YEAR_LADDER_START,
@@ -227,6 +227,29 @@ class StateGridInfoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
+    # 通用：设置更新间隔
+    async def async_step_update_interval(self, user_input=None):
+        errors = {}
+        is_sgcc = self._data.get(CONF_DATA_SOURCE) == DATA_SOURCE_SGCC_DIRECT
+        default_hours = DEFAULT_UPDATE_INTERVAL_HOURS if is_sgcc else 0.17
+        
+        if user_input is not None:
+            self._data[CONF_UPDATE_INTERVAL] = user_input[CONF_UPDATE_INTERVAL]
+            title = f"{NAME} - {self._data.get(CONF_CONSUMER_NUMBER)}"
+            return self.async_create_entry(title=title, data=self._data)
+        
+        current = self._data.get(CONF_UPDATE_INTERVAL, default_hours)
+        return self.async_show_form(
+            step_id="update_interval",
+            data_schema=vol.Schema({
+                vol.Required(CONF_UPDATE_INTERVAL, default=float(current)): vol.All(
+                    vol.Coerce(float), vol.Range(min=0.05, max=168)
+                ),
+            }),
+            errors=errors,
+            last_step=True,
+        )
+
     # 计费标准
     async def async_step_billing_standard(self, user_input=None):
         errors = {}
@@ -268,9 +291,8 @@ class StateGridInfoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             for key, value in user_input.items():
                 self._data[key] = value
             
-            # 配置完成，创建条目
-            title = f"{NAME} - {self._data.get(CONF_CONSUMER_NUMBER)}"
-            return self.async_create_entry(title=title, data=self._data)
+            # 配置完成，进入更新间隔设置
+            return await self.async_step_update_interval()
         
         # 获取表单配置
         schema = self._get_billing_schema(current_standard, self._data)
@@ -638,6 +660,32 @@ class StateGridInfoOptionsFlowHandler(config_entries.OptionsFlow):
             errors=errors,
         )
 
+    # 通用：设置更新间隔
+    async def async_step_update_interval(self, user_input=None):
+        errors = {}
+        is_sgcc = self._data.get(CONF_DATA_SOURCE) == DATA_SOURCE_SGCC_DIRECT
+        default_hours = DEFAULT_UPDATE_INTERVAL_HOURS if is_sgcc else 0.17
+        
+        if user_input is not None:
+            self._data[CONF_UPDATE_INTERVAL] = user_input[CONF_UPDATE_INTERVAL]
+            self.hass.config_entries.async_update_entry(
+                self._config_entry, data=self._data, options=self._config_entry.options
+            )
+            await self.hass.config_entries.async_reload(self._config_entry.entry_id)
+            return self.async_create_entry(title="", data={})
+        
+        current = self._data.get(CONF_UPDATE_INTERVAL, default_hours)
+        return self.async_show_form(
+            step_id="update_interval",
+            data_schema=vol.Schema({
+                vol.Required(CONF_UPDATE_INTERVAL, default=float(current)): vol.All(
+                    vol.Coerce(float), vol.Range(min=0.05, max=168)
+                ),
+            }),
+            errors=errors,
+            last_step=True,
+        )
+
     async def async_step_billing_standard(self, user_input=None):
         """Handle billing standard selection."""
         errors = {}
@@ -680,15 +728,13 @@ class StateGridInfoOptionsFlowHandler(config_entries.OptionsFlow):
             for key, value in user_input.items():
                 self._data[key] = value
             
-            # 更新配置项
+            # 更新配置项（不reload，等interval步骤完成）
             self.hass.config_entries.async_update_entry(
                 self._config_entry, 
                 data=self._data,
                 options=self._config_entry.options
             )
-            
-            await self.hass.config_entries.async_reload(self._config_entry.entry_id)
-            return self.async_create_entry(title="", data={})
+            return await self.async_step_update_interval()
         
         # 获取表单配置
         schema = self._get_billing_schema(current_standard, self._data)
