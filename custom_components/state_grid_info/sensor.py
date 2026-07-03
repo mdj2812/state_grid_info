@@ -1650,7 +1650,7 @@ class StateGridCumulativeCostSensor(_StateGridSensor):
     """
 
     _attr_device_class = SensorDeviceClass.MONETARY
-    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+    _attr_state_class = SensorStateClass.TOTAL
     _attr_native_unit_of_measurement = "元"
     _attr_icon = "mdi:cash-plus"
 
