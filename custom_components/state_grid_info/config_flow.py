@@ -12,7 +12,7 @@ from homeassistant.helpers import config_validation as cv
 
 from .const import (
     DOMAIN, NAME,
-    DATA_SOURCE_HASSBOX, DATA_SOURCE_QINGLONG, DATA_SOURCE_OPTIONS, DATA_SOURCE_NAMES,
+    DATA_SOURCE_HASSBOX, DATA_SOURCE_QINGLONG, DATA_SOURCE_SGCC_DIRECT, DATA_SOURCE_OPTIONS, DATA_SOURCE_NAMES,
     BILLING_STANDARD_OPTIONS, BILLING_STANDARD_NAMES,
     BILLING_STANDARD_YEAR_阶梯, BILLING_STANDARD_YEAR_阶梯_峰平谷,
     BILLING_STANDARD_MONTH_阶梯, BILLING_STANDARD_MONTH_阶梯_峰平谷,
@@ -20,6 +20,7 @@ from .const import (
     CONF_DATA_SOURCE, CONF_BILLING_STANDARD,
     CONF_CONSUMER_NUMBER, CONF_CONSUMER_NUMBER_INDEX, CONF_CONSUMER_NAME,
     CONF_MQTT_HOST, CONF_MQTT_PORT, CONF_MQTT_USERNAME, CONF_MQTT_PASSWORD, CONF_STATE_GRID_ID,
+    CONF_SGCC_USERNAME, CONF_SGCC_PASSWORD,
     CONF_LADDER_LEVEL_1, CONF_LADDER_LEVEL_2,
     CONF_LADDER_PRICE_1, CONF_LADDER_PRICE_2, CONF_LADDER_PRICE_3,
     CONF_YEAR_LADDER_START,
@@ -43,6 +44,7 @@ class StateGridInfoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._data = {}
         self._consumer_numbers = []
         self._hassbox_data = None
+        self._sgcc_households = []
         
     def _read_config_file(self, config_path):
         """在执行器中读取配置文件。"""
@@ -66,6 +68,8 @@ class StateGridInfoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             
             if user_input[CONF_DATA_SOURCE] == DATA_SOURCE_HASSBOX:
                 return await self.async_step_hassbox_consumer()
+            elif user_input[CONF_DATA_SOURCE] == DATA_SOURCE_SGCC_DIRECT:
+                return await self.async_step_sgcc_credentials()
             else:
                 return await self.async_step_qinglong_mqtt()
         
@@ -159,6 +163,66 @@ class StateGridInfoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required(CONF_MQTT_USERNAME): cv.string,
                 vol.Required(CONF_MQTT_PASSWORD): cv.string,
                 vol.Required(CONF_STATE_GRID_ID): cv.string,
+            }),
+            errors=errors,
+        )
+
+    # SGCC直连：输入账号密码
+    async def async_step_sgcc_credentials(self, user_input=None):
+        errors = {}
+        
+        if user_input is not None:
+            self._data[CONF_SGCC_USERNAME] = user_input[CONF_SGCC_USERNAME]
+            self._data[CONF_SGCC_PASSWORD] = user_input[CONF_SGCC_PASSWORD]
+            
+            # Try login to get household list
+            try:
+                from .sgcc_api import SgccClient, SgccError
+                async with SgccClient() as client:
+                    households = await client.login(
+                        user_input[CONF_SGCC_USERNAME],
+                        user_input[CONF_SGCC_PASSWORD],
+                    )
+                self._sgcc_households = households
+                return await self.async_step_sgcc_consumer()
+            except SgccError as e:
+                _LOGGER.error("SGCC login failed: %s", e)
+                errors["base"] = "sgcc_login_failed"
+            except Exception as e:
+                _LOGGER.error("SGCC login error: %s", e)
+                errors["base"] = "sgcc_network_error"
+        
+        return self.async_show_form(
+            step_id="sgcc_credentials",
+            data_schema=vol.Schema({
+                vol.Required(CONF_SGCC_USERNAME): cv.string,
+                vol.Required(CONF_SGCC_PASSWORD): cv.string,
+            }),
+            errors=errors,
+        )
+
+    # SGCC直连：选择户号
+    async def async_step_sgcc_consumer(self, user_input=None):
+        errors = {}
+        
+        if user_input is not None:
+            self._data[CONF_CONSUMER_NUMBER] = user_input[CONF_CONSUMER_NUMBER]
+            # Save consumer name
+            for h in self._sgcc_households:
+                if h.get("consNo_dst") == user_input[CONF_CONSUMER_NUMBER]:
+                    self._data[CONF_CONSUMER_NAME] = h.get("consName_dst", "")
+                    break
+            return await self.async_step_billing_standard()
+        
+        consumer_options = {
+            h.get("consNo_dst", ""): f"{h.get('consNo_dst','')} - {h.get('consName_dst','')}"
+            for h in self._sgcc_households
+        }
+        
+        return self.async_show_form(
+            step_id="sgcc_consumer",
+            data_schema=vol.Schema({
+                vol.Required(CONF_CONSUMER_NUMBER): vol.In(consumer_options),
             }),
             errors=errors,
         )
@@ -394,6 +458,7 @@ class StateGridInfoOptionsFlowHandler(config_entries.OptionsFlow):
         self._config_entry = config_entry
         self._data = dict(config_entry.data)
         self._consumer_numbers = []
+        self._sgcc_households = []
 
     def _read_config_file(self, config_path):
         """在执行器中读取配置文件。"""
@@ -417,6 +482,8 @@ class StateGridInfoOptionsFlowHandler(config_entries.OptionsFlow):
             
             if user_input[CONF_DATA_SOURCE] == DATA_SOURCE_HASSBOX:
                 return await self.async_step_hassbox_consumer()
+            elif user_input[CONF_DATA_SOURCE] == DATA_SOURCE_SGCC_DIRECT:
+                return await self.async_step_sgcc_credentials()
             else:
                 return await self.async_step_qinglong_mqtt()
         
@@ -508,6 +575,65 @@ class StateGridInfoOptionsFlowHandler(config_entries.OptionsFlow):
                 vol.Required(CONF_MQTT_USERNAME, default=self._data.get(CONF_MQTT_USERNAME, "")): cv.string,
                 vol.Required(CONF_MQTT_PASSWORD, default=self._data.get(CONF_MQTT_PASSWORD, "")): cv.string,
                 vol.Required(CONF_STATE_GRID_ID, default=self._data.get(CONF_STATE_GRID_ID, "")): cv.string,
+            }),
+            errors=errors,
+        )
+
+    # SGCC直连：输入账号密码
+    async def async_step_sgcc_credentials(self, user_input=None):
+        errors = {}
+        
+        if user_input is not None:
+            self._data[CONF_SGCC_USERNAME] = user_input[CONF_SGCC_USERNAME]
+            self._data[CONF_SGCC_PASSWORD] = user_input[CONF_SGCC_PASSWORD]
+            
+            try:
+                from .sgcc_api import SgccClient, SgccError
+                async with SgccClient() as client:
+                    households = await client.login(
+                        user_input[CONF_SGCC_USERNAME],
+                        user_input[CONF_SGCC_PASSWORD],
+                    )
+                self._sgcc_households = households
+                return await self.async_step_sgcc_consumer()
+            except SgccError as e:
+                _LOGGER.error("SGCC login failed: %s", e)
+                errors["base"] = "sgcc_login_failed"
+            except Exception as e:
+                _LOGGER.error("SGCC login error: %s", e)
+                errors["base"] = "sgcc_network_error"
+        
+        return self.async_show_form(
+            step_id="sgcc_credentials",
+            data_schema=vol.Schema({
+                vol.Required(CONF_SGCC_USERNAME, default=self._data.get(CONF_SGCC_USERNAME, "")): cv.string,
+                vol.Required(CONF_SGCC_PASSWORD, default=self._data.get(CONF_SGCC_PASSWORD, "")): cv.string,
+            }),
+            errors=errors,
+        )
+
+    # SGCC直连：选择户号
+    async def async_step_sgcc_consumer(self, user_input=None):
+        errors = {}
+        
+        if user_input is not None:
+            self._data[CONF_CONSUMER_NUMBER] = user_input[CONF_CONSUMER_NUMBER]
+            for h in self._sgcc_households:
+                if h.get("consNo_dst") == user_input[CONF_CONSUMER_NUMBER]:
+                    self._data[CONF_CONSUMER_NAME] = h.get("consName_dst", "")
+                    break
+            return await self.async_step_billing_standard()
+        
+        consumer_options = {
+            h.get("consNo_dst", ""): f"{h.get('consNo_dst','')} - {h.get('consName_dst','')}"
+            for h in self._sgcc_households
+        }
+        current_consumer = self._data.get(CONF_CONSUMER_NUMBER)
+        
+        return self.async_show_form(
+            step_id="sgcc_consumer",
+            data_schema=vol.Schema({
+                vol.Required(CONF_CONSUMER_NUMBER, default=current_consumer): vol.In(consumer_options),
             }),
             errors=errors,
         )

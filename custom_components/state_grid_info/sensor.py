@@ -15,13 +15,14 @@ from homeassistant.const import CONF_NAME
 
 from .const import (
     DOMAIN,
-    DATA_SOURCE_HASSBOX, DATA_SOURCE_QINGLONG,
+    DATA_SOURCE_HASSBOX, DATA_SOURCE_QINGLONG, DATA_SOURCE_SGCC_DIRECT,
     BILLING_STANDARD_YEAR_阶梯, BILLING_STANDARD_YEAR_阶梯_峰平谷,
     BILLING_STANDARD_MONTH_阶梯, BILLING_STANDARD_MONTH_阶梯_峰平谷,
     BILLING_STANDARD_MONTH_阶梯_峰平谷_变动价格, BILLING_STANDARD_OTHER_平均单价,
     CONF_DATA_SOURCE, CONF_BILLING_STANDARD,
     CONF_CONSUMER_NUMBER, CONF_CONSUMER_NUMBER_INDEX, CONF_CONSUMER_NAME,
     CONF_MQTT_HOST, CONF_MQTT_PORT, CONF_MQTT_USERNAME, CONF_MQTT_PASSWORD, CONF_STATE_GRID_ID,
+    CONF_SGCC_USERNAME, CONF_SGCC_PASSWORD,
     CONF_LADDER_LEVEL_1, CONF_LADDER_LEVEL_2,
     CONF_LADDER_PRICE_1, CONF_LADDER_PRICE_2, CONF_LADDER_PRICE_3,
     CONF_YEAR_LADDER_START,
@@ -29,6 +30,7 @@ from .const import (
     CONF_MONTH_PRICES, CONF_AVERAGE_PRICE, CONF_IS_PREPAID,
 )
 from .storage import StateGridStorage
+from .sgcc_api import SgccClient, SgccError
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -67,11 +69,12 @@ class StateGridInfoDataCoordinator(DataUpdateCoordinator):
 
     def __init__(self, hass: HomeAssistant, config: dict):
         """Initialize the data coordinator."""
+        update_interval = timedelta(hours=6) if config.get(CONF_DATA_SOURCE) == DATA_SOURCE_SGCC_DIRECT else timedelta(minutes=10)
         super().__init__(
             hass,
             _LOGGER,
             name=DOMAIN,
-            update_interval=timedelta(minutes=10),  # 每10分钟自动更新
+            update_interval=update_interval,
         )
         self.config = config
         self.mqtt_client = None
@@ -101,6 +104,9 @@ class StateGridInfoDataCoordinator(DataUpdateCoordinator):
         elif self.config.get(CONF_DATA_SOURCE) == DATA_SOURCE_QINGLONG:
             # 设置MQTT客户端
             self._setup_mqtt_client()
+        elif self.config.get(CONF_DATA_SOURCE) == DATA_SOURCE_SGCC_DIRECT:
+            # SGCC直连 — schedule initial fetch after HA stabilizes
+            self.hass.loop.create_task(self._schedule_sgcc_fetch())
 
     def _setup_mqtt_client(self):
         """Set up MQTT client for Qinglong script data source."""
@@ -225,6 +231,73 @@ class StateGridInfoDataCoordinator(DataUpdateCoordinator):
             except Exception as ex:
                 _LOGGER.warning("断开MQTT连接时出错: %s", ex)
 
+    # ── SGCC Direct API ──────────────────────────────────────────
+
+    async def _schedule_sgcc_fetch(self) -> None:
+        """Schedule the initial SGCC data fetch after a short delay."""
+        _LOGGER.info("SGCC直连: 等待HA稳定后开始首次数据拉取...")
+        await asyncio.sleep(30)  # Let HA finish startup
+        await self._fetch_sgcc_data()
+
+    async def _fetch_sgcc_data(self) -> None:
+        """Fetch electricity data from SGCC API and feed into storage."""
+        username = self.config.get(CONF_SGCC_USERNAME, "")
+        password = self.config.get(CONF_SGCC_PASSWORD, "")
+        if not username or not password:
+            _LOGGER.error("SGCC直连: 未配置账号密码")
+            return
+
+        cons_no = self.config.get(CONF_CONSUMER_NUMBER, "")
+        _LOGGER.info("SGCC直连: 开始拉取户号 %s 的用电数据...", cons_no)
+
+        try:
+            async with SgccClient() as client:
+                # Login
+                households = await client.login(username, password)
+                if not households:
+                    _LOGGER.error("SGCC直连: 未找到绑定户号")
+                    return
+
+                # Find the configured household
+                target = None
+                for h in households:
+                    if h.get("consNo_dst") == cons_no:
+                        target = h
+                        break
+                if not target:
+                    # Fall back to first household
+                    target = households[0]
+                    _LOGGER.warning(
+                        "SGCC直连: 未找到户号 %s, 使用第一个: %s",
+                        cons_no, target.get("consNo_dst", "?"),
+                    )
+
+                # Fetch data
+                results = await client.fetch_all()
+                for r in results:
+                    if r["consNo"] == target.get("consNo_dst"):
+                        payload = r["data"]
+                        # Feed through the same pipeline as QingLong MQTT
+                        processed = self._process_qinglong_data(payload)
+                        if processed:
+                            merged = self._storage.update(processed)
+                            self.data = merged
+                            self.last_update_time = datetime.now()
+                            self.async_set_updated_data(self.data)
+                            _LOGGER.info(
+                                "SGCC直连: 数据更新成功 — 余额:%s 本年用电:%s kWh",
+                                payload.get("sumMoney", "?"),
+                                payload.get("totalEleNum", "?"),
+                            )
+                        return
+
+                _LOGGER.error("SGCC直连: 未找到户号 %s 的数据", cons_no)
+
+        except SgccError as e:
+            _LOGGER.error("SGCC直连: API请求失败 — %s", e)
+        except Exception as e:
+            _LOGGER.error("SGCC直连: 未知错误 — %s", e, exc_info=True)
+
     async def _async_update_data(self):
         """Fetch data from the appropriate source."""
         try:
@@ -293,6 +366,11 @@ class StateGridInfoDataCoordinator(DataUpdateCoordinator):
                     return {}
                 
                 return self.data
+            elif self.config.get(CONF_DATA_SOURCE) == DATA_SOURCE_SGCC_DIRECT:
+                # SGCC直连 — re-fetch on each scheduled update
+                _LOGGER.info("SGCC直连: 定时刷新...")
+                await self._fetch_sgcc_data()
+                return self.data if self.data else {}
             return {}
         except Exception as ex:
             _LOGGER.error("Error updating State Grid Info data: %s", ex)

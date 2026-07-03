@@ -6,13 +6,16 @@ NAME = "国家电网辅助信息"
 # 数据来源选项
 DATA_SOURCE_HASSBOX = "hassbox"
 DATA_SOURCE_QINGLONG = "qinglong"
+DATA_SOURCE_SGCC_DIRECT = "sgcc_direct"
 DATA_SOURCE_OPTIONS = [
     DATA_SOURCE_HASSBOX,
     DATA_SOURCE_QINGLONG,
+    DATA_SOURCE_SGCC_DIRECT,
 ]
 DATA_SOURCE_NAMES = {
     DATA_SOURCE_HASSBOX: "HassBox集成",
     DATA_SOURCE_QINGLONG: "国网青龙脚本",
+    DATA_SOURCE_SGCC_DIRECT: "网上国网直连",
 }
 
 
@@ -49,6 +52,10 @@ CONF_MQTT_PORT = "mqtt_port"
 CONF_MQTT_USERNAME = "mqtt_username"
 CONF_MQTT_PASSWORD = "mqtt_password"
 CONF_STATE_GRID_ID = "state_grid_id"
+
+# SGCC 直连相关常量
+CONF_SGCC_USERNAME = "sgcc_username"
+CONF_SGCC_PASSWORD = "sgcc_password"
 
 # 配置项
 CONF_DATA_SOURCE = "data_source"

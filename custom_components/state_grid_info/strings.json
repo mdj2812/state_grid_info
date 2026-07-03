@@ -30,6 +30,21 @@
           "state_grid_id": "国家电网户号"
         }
       },
+      "sgcc_credentials": {
+        "title": "网上国网账号",
+        "description": "请输入网上国网登录账号和密码",
+        "data": {
+          "sgcc_username": "手机号",
+          "sgcc_password": "密码"
+        }
+      },
+      "sgcc_consumer": {
+        "title": "选择户号",
+        "description": "请选择要查询的用电户号",
+        "data": {
+          "consumer_number": "户号"
+        }
+      },
       "billing_type": {
         "title": "选择计费类型",
         "description": "请选择电费计费类型",
@@ -79,7 +94,9 @@
     "error": {
       "hassbox_config_not_found": "未找到HassBox配置文件",
       "hassbox_config_error": "读取HassBox配置文件出错",
-      "mqtt_connection_error": "MQTT连接失败"
+      "mqtt_connection_error": "MQTT连接失败",
+      "sgcc_login_failed": "网上国网登录失败，请检查账号密码",
+      "sgcc_network_error": "网络连接失败，请稍后重试"
     },
     "abort": {
       "already_configured": "该户号已经配置"
@@ -114,6 +131,21 @@
           "mqtt_username": "MQTT用户名",
           "mqtt_password": "MQTT密码",
           "state_grid_id": "国家电网户号"
+        }
+      },
+      "sgcc_credentials": {
+        "title": "网上国网账号",
+        "description": "请输入网上国网登录账号和密码",
+        "data": {
+          "sgcc_username": "手机号",
+          "sgcc_password": "密码"
+        }
+      },
+      "sgcc_consumer": {
+        "title": "选择户号",
+        "description": "请选择要查询的用电户号",
+        "data": {
+          "consumer_number": "户号"
         }
       },
       "billing_standard": {
@@ -194,7 +226,9 @@
     "error": {
       "hassbox_config_not_found": "未找到HassBox配置文件",
       "hassbox_config_error": "读取HassBox配置文件出错",
-      "mqtt_connection_error": "MQTT连接失败"
+      "mqtt_connection_error": "MQTT连接失败",
+      "sgcc_login_failed": "网上国网登录失败，请检查账号密码",
+      "sgcc_network_error": "网络连接失败，请稍后重试"
     },
     "progress": {
       "import": "正在导入..."
