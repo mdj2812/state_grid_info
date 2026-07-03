@@ -189,7 +189,7 @@ class StateGridInfoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 _LOGGER.error("SGCC login failed: %s", e)
                 errors["base"] = "sgcc_login_failed"
             except Exception as e:
-                _LOGGER.error("SGCC login error: %s", e)
+                _LOGGER.error("SGCC login error: %s (%s)", type(e).__name__, e)
                 errors["base"] = "sgcc_network_error"
         
         return self.async_show_form(
@@ -622,7 +622,7 @@ class StateGridInfoOptionsFlowHandler(config_entries.OptionsFlow):
                 _LOGGER.error("SGCC login failed: %s", e)
                 errors["base"] = "sgcc_login_failed"
             except Exception as e:
-                _LOGGER.error("SGCC login error: %s", e)
+                _LOGGER.error("SGCC login error: %s (%s)", type(e).__name__, e)
                 errors["base"] = "sgcc_network_error"
         
         return self.async_show_form(
