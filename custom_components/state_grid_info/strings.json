@@ -102,7 +102,7 @@
       "hassbox_config_not_found": "未找到HassBox配置文件",
       "hassbox_config_error": "读取HassBox配置文件出错",
       "mqtt_connection_error": "MQTT连接失败",
-      "sgcc_login_failed": "网上国网登录失败，请检查账号密码",
+      "sgcc_login_failed": "登录失败（可重试），请检查账号密码是否正确",
       "sgcc_network_error": "网络连接失败，请稍后重试"
     },
     "abort": {
@@ -241,7 +241,7 @@
       "hassbox_config_not_found": "未找到HassBox配置文件",
       "hassbox_config_error": "读取HassBox配置文件出错",
       "mqtt_connection_error": "MQTT连接失败",
-      "sgcc_login_failed": "网上国网登录失败，请检查账号密码",
+      "sgcc_login_failed": "登录失败（可重试），请检查账号密码是否正确",
       "sgcc_network_error": "网络连接失败，请稍后重试"
     },
     "progress": {

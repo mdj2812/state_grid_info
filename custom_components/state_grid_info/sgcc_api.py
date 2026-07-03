@@ -221,7 +221,7 @@ class SgccClient:
         return data.get("data", data)
 
     async def _sgcc_request(
-        self, config: dict[str, Any], *, retry_count: int = 0, max_captcha_retries: int = 1
+        self, config: dict[str, Any], *, retry_count: int = 0, max_captcha_retries: int = 3
     ) -> dict[str, Any]:
         """Full encrypt → SGCC → decrypt cycle, with captcha retry."""
         # Encrypt
@@ -267,7 +267,7 @@ class SgccClient:
                 # Also set at top data level
                 inner["complexSliderRet"] = 0
                 inner["complexSliderType"] = "clickImg"
-            await asyncio.sleep(1)
+            await asyncio.sleep(2)
             return await self._sgcc_request(new_config, retry_count=retry_count + 1, max_captcha_retries=max_captcha_retries)
 
         return result
