@@ -199,24 +199,24 @@ class StateGridInfoDataCoordinator(DataUpdateCoordinator):
             # 解析和处理消息
             payload = json.loads(msg.payload.decode())
             processed_data = self._process_qinglong_data(payload)
-            
-            # 先更新到持久化存储，再读取到HA
+
+            # Store 是异步 API — marshal 到事件循环持久化并通知
             if processed_data:
-                merged_data = self._storage.update(processed_data)
-                self.data = merged_data
-            else:
-                self.data = processed_data
-            
+                self.hass.add_job(self._async_apply_processed_data, processed_data)
+
             self.last_update_time = receive_time
-            
-            # 通知协调器数据已更新
-            self.async_set_updated_data(self.data)
-            
+
             _LOGGER.info("成功更新MQTT数据，接收时间: %s", receive_time.strftime("%Y-%m-%d %H:%M:%S"))
         except json.JSONDecodeError as json_err:
             _LOGGER.error("MQTT消息JSON解析错误: %s", json_err)
         except Exception as ex:
             _LOGGER.error("处理MQTT消息时出错: %s", ex)
+
+    async def _async_apply_processed_data(self, processed_data):
+        """Persist processed data via Store and notify listeners (event loop)."""
+        merged_data = await self._storage.async_update(processed_data)
+        self.data = merged_data
+        self.async_set_updated_data(self.data)
             
     def _on_mqtt_disconnect(self, client, userdata, rc):
         """Handle MQTT disconnection."""
@@ -285,7 +285,7 @@ class StateGridInfoDataCoordinator(DataUpdateCoordinator):
                         # Feed through the same pipeline as QingLong MQTT
                         processed = self._process_qinglong_data(payload)
                         if processed:
-                            merged = self._storage.update(processed)
+                            merged = await self._storage.async_update(processed)
                             self.data = merged
                             self.last_update_time = datetime.now()
                             self.async_set_updated_data(self.data)
@@ -335,9 +335,7 @@ class StateGridInfoDataCoordinator(DataUpdateCoordinator):
                 
                 # 先更新到持久化存储，再读取到HA
                 if hassbox_data:
-                    merged_data = await self.hass.async_add_executor_job(
-                        self._storage.update, hassbox_data
-                    )
+                    merged_data = await self._storage.async_update(hassbox_data)
                     self.data = merged_data
                 else:
                     # 新数据为空时，使用持久化存储中的历史数据
