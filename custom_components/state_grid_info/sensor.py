@@ -43,6 +43,8 @@ async def async_setup_entry(
     # 创建数据协调器
     coordinator = StateGridInfoDataCoordinator(hass, config)
     await coordinator.async_load_storage()
+    # 存储迁移完成后才启动数据源 — 否则 MQTT retained 消息会抢在迁移前写入（issue #6）
+    coordinator.setup_data_source()
     await coordinator.async_config_entry_first_refresh()
     
     # 创建传感器实体
@@ -89,8 +91,6 @@ class StateGridInfoDataCoordinator(DataUpdateCoordinator):
         consumer_number = config.get(CONF_CONSUMER_NUMBER, "default")
         self._storage = StateGridStorage(hass, consumer_number)
         self.data = None
-        
-        self._setup_data_source()
 
     async def async_load_storage(self) -> None:
         """Load persistent storage data asynchronously."""
@@ -101,8 +101,13 @@ class StateGridInfoDataCoordinator(DataUpdateCoordinator):
             # doesn't discard freshly-loaded storage data on first refresh
             self.last_update_time = datetime.now()
 
-    def _setup_data_source(self):
-        """Set up the data source based on configuration."""
+    def setup_data_source(self):
+        """Set up the data source based on configuration.
+
+        Must only be called AFTER async_load_storage() completes —
+        starting MQTT earlier lets the broker's retained message write
+        to the Store before the legacy migration runs (see issue #6).
+        """
         if self.config.get(CONF_DATA_SOURCE) == DATA_SOURCE_HASSBOX:
             # HassBox集成数据源不需要特殊设置
             pass
